@@ -71,7 +71,7 @@ alter table public.events add column if not exists external_source_url text;
 
 create or replace function public.is_khelaiya_admin()
 returns boolean
-language sql stable security definer set search_path = public
+language sql stable security definer set search_path = public, pg_temp
 as $$ select exists (select 1 from public.admin_users where user_id = auth.uid()); $$;
 
 alter table public.admin_users enable row level security;
@@ -79,6 +79,12 @@ alter table public.events enable row level security;
 alter table public.tickets enable row level security;
 alter table public.bookings enable row level security;
 alter table public.booking_items enable row level security;
+
+alter table public.admin_users force row level security;
+alter table public.events force row level security;
+alter table public.tickets force row level security;
+alter table public.bookings force row level security;
+alter table public.booking_items force row level security;
 
 drop policy if exists "admins read own admin record" on public.admin_users;
 create policy "admins read own admin record" on public.admin_users
@@ -111,7 +117,7 @@ create policy "admins read booking items" on public.booking_items
 
 create or replace function public.release_expired_upi_holds()
 returns void
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
   v_booking record;
@@ -140,7 +146,7 @@ create or replace function public.create_manual_booking_hold(
   p_items jsonb
 )
 returns jsonb
-language plpgsql security definer set search_path = public, extensions
+language plpgsql security definer set search_path = public, extensions, pg_temp
 as $$
 declare
   v_booking_id uuid := gen_random_uuid();
@@ -215,7 +221,7 @@ $$;
 
 create or replace function public.finalize_manual_booking(p_booking_id uuid, p_upi_reference text)
 returns text
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
   v_booking_code text;
@@ -234,7 +240,7 @@ $$;
 
 create or replace function public.review_upi_booking(p_booking_id uuid, p_decision text)
 returns void
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
   v_booking public.bookings%rowtype;
@@ -375,7 +381,7 @@ on conflict (event_id, vendor_name, pass_name) do update set
 -- Customer status lookup function for My Passes
 create or replace function public.check_booking_status(p_code text)
 returns jsonb
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
   v_res jsonb;

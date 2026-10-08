@@ -28,6 +28,8 @@ export default async function AdminLoginPage({
     setup: "Supabase connection keys are not configured yet in .env.local.",
     invalid: "Email or password did not match.",
     "not-admin": "This user account does not have admin permissions in public.admin_users.",
+    "rate-limit": "Too many failed login attempts. Please wait 15 minutes before trying again.",
+    "mfa-required": "Two-factor authentication (MFA) is required for this admin account.",
   };
 
   const isSetupError = error === "setup" || !supabase;

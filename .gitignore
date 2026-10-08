@@ -6,3 +6,4 @@ out/
 *.tsbuildinfo
 work-npm-cache/
 .DS_Store
+env-for-vercel.txt

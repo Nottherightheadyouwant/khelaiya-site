@@ -4,25 +4,48 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { validateImageFile } from "@/lib/security/upload";
+import { checkRateLimit } from "@/lib/security/rateLimit";
+import { safeLog } from "@/lib/security/logger";
 
 export async function loginAction(formData: FormData) {
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const password = String(formData.get("password") || "");
+
+  if (!email || !password) {
+    redirect("/admin/login?error=invalid");
+  }
+
+  // Rate limit: max 5 login attempts per 15 minutes per email to prevent brute-force
+  const rate = checkRateLimit(`login:${email}`, { limit: 5, windowMs: 15 * 60 * 1000 });
+  if (!rate.success) {
+    safeLog.warn("Admin login rate limit exceeded for account attempt");
+    redirect("/admin/login?error=rate-limit");
+  }
+
   const supabase = await createSupabaseServerClient();
   if (!supabase) redirect("/admin/login?error=setup");
-  const email = String(formData.get("email") || "").trim();
-  const password = String(formData.get("password") || "");
+
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) redirect("/admin/login?error=invalid");
+  if (error) {
+    safeLog.warn("Failed admin login attempt");
+    redirect("/admin/login?error=invalid");
+  }
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
   const { data: admin } = user
     ? await supabase.from("admin_users").select("user_id").eq("user_id", user.id).maybeSingle()
     : { data: null };
+
   if (!admin) {
     await supabase.auth.signOut();
     redirect("/admin/login?error=not-admin");
   }
+
+  safeLog.info("Admin user authenticated successfully");
   redirect("/admin");
 }
 
@@ -61,6 +84,7 @@ export async function saveEventAction(formData: FormData) {
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
   const published = formData.get("published") === "on";
   const tickets = parseTicketLines(String(formData.get("tickets") || ""));
+
   if (!name || !city || !venue || dates.length === 0) {
     redirect(`/admin/events/${eventId || "new"}?error=required`);
   }
@@ -89,15 +113,19 @@ export async function saveEventAction(formData: FormData) {
 
   let heroImageUrl = existing.data?.hero_image_url || null;
   const image = formData.get("hero_image");
+
+  // Validate uploaded cover image by magic binary header and size
   if (image instanceof File && image.size > 0) {
-    if (!["image/jpeg", "image/png", "image/webp"].includes(image.type) || image.size > 5 * 1024 * 1024) {
+    const validation = await validateImageFile(image);
+    if (!validation.valid || !validation.mimeType || !validation.extension) {
       redirect(`/admin/events/${eventId || "new"}?error=image`);
     }
-    const extension = image.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
-    const path = `${crypto.randomUUID()}.${extension}`;
+
+    const path = `${crypto.randomUUID()}.${validation.extension}`;
     const { error: uploadError } = await supabase.storage
       .from("event-covers")
-      .upload(path, image, { contentType: image.type, upsert: false });
+      .upload(path, image, { contentType: validation.mimeType, upsert: false });
+
     if (uploadError) redirect(`/admin/events/${eventId || "new"}?error=upload`);
     heroImageUrl = supabase.storage.from("event-covers").getPublicUrl(path).data.publicUrl;
   }
@@ -168,6 +196,12 @@ export async function reviewBookingAction(formData: FormData) {
   const id = String(formData.get("booking_id") || "");
   const decision = String(formData.get("decision") || "");
   if (!id || !["verified", "rejected"].includes(decision)) redirect("/admin?error=review");
+
+  // Validate UUID format to prevent malformed RPC inputs
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    redirect("/admin?error=review");
+  }
+
   const { error } = await supabase.rpc("review_upi_booking", {
     p_booking_id: id,
     p_decision: decision,

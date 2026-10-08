@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import type { Event, Ticket } from "@/lib/types";
 import { createManualUpiCheckout } from "@/lib/payment";
+import { sanitizeUrl } from "@/lib/security/sanitize";
 
 const money = (amount: number) =>
   new Intl.NumberFormat("en-IN", {
@@ -124,9 +125,30 @@ export function EventsExplorer({
     }
   }, [myPassesOpen]);
 
-  // Load saved bookings and favorites from localStorage
+  // Load saved bookings and favorites from localStorage, and ensure no auth tokens exist in storage
   useEffect(() => {
     try {
+      // Proactively purge any authentication tokens from local or session storage
+      const tokenKeys = ["sb-", "supabase.auth.", "token", "access_token", "refresh_token", "jwt", "auth-token"];
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && tokenKeys.some((pattern) => key.toLowerCase().includes(pattern))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+      // Same check for sessionStorage
+      const sessionKeysToRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && tokenKeys.some((pattern) => key.toLowerCase().includes(pattern))) {
+          sessionKeysToRemove.push(key);
+        }
+      }
+      sessionKeysToRemove.forEach((k) => sessionStorage.removeItem(k));
+
       const raw = localStorage.getItem("khelaiya_my_bookings");
       if (raw) setSavedBookings(JSON.parse(raw));
       const rawFav = localStorage.getItem("khelaiya_favs");
@@ -815,10 +837,10 @@ export function EventsExplorer({
                         </p>
                       )}
 
-                      {active.external_source_url && (
+                      {sanitizeUrl(active.external_source_url) && (
                         <p className="source-note">
                           Public event details are for reference.{" "}
-                          <a href={active.external_source_url} target="_blank" rel="noreferrer">
+                          <a href={sanitizeUrl(active.external_source_url)!} target="_blank" rel="noopener noreferrer">
                             View public listing ↗
                           </a>
                         </p>
